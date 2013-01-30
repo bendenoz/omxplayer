@@ -8,7 +8,7 @@ all: checkout configure compile
 
 copy:
 	find ffmpeg -name '*.so*' -exec cp {} . \;
-	$(HOST)-strip *.so*
+	$(TOOLCHAIN)/bin/$(HOST)-strip *.so*
 
 compile: 
 	cd ffmpeg; \
@@ -54,7 +54,7 @@ configure:
 			--enable-hardcoded-tables \
 			--disable-runtime-cpudetect \
 			--disable-debug \
-			--cross-prefix=$(HOST)-
+			--cross-prefix=$(TOOLCHAIN)/bin/$(HOST)-
 
 clean:
 	@rm -rf ffmpeg
@@ -65,5 +65,5 @@ checkout:
 
 install:
 	cd ffmpeg; make -j9 DESTDIR="$(WORK)/ffmpeg_compiled" install
-	$(HOST)-strip ffmpeg_compiled/usr/local/lib/*.so
+	$(TOOLCHAIN)/bin/$(HOST)-strip ffmpeg_compiled/usr/local/lib/*.so
 
