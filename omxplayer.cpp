@@ -823,19 +823,22 @@ int main(int argc, char *argv[])
 
     if(m_omx_reader.IsEof() && !m_omx_pkt)
     {
-      // It's the end of the road.
-
       if (!m_player_audio.GetCached() && !m_player_video.GetCached())
       {
         if (m_loop)
         {
-          if(m_omx_reader.SeekTime(0, AVSEEK_FLAG_BACKWARD, &startpts))
-            FlushStreams(startpts);
 
-          m_player_video.Close();
-          if(m_has_video && !m_player_video.Open(m_hints_video, m_av_clock, m_Deinterlace,  m_bMpeg, 
-                                                 m_hdmi_clock_sync, m_thread_player, m_display_aspect))
-          goto do_exit;
+          if(m_has_audio)
+            m_player_audio.WaitCompletion();
+          else if(m_has_video)
+            m_player_video.WaitCompletion();
+
+          if(m_omx_reader.SeekTime(m_seek_pos * 1000.0f, 0, &startpts))
+          {
+            FlushStreams(startpts);
+            if (m_has_video) m_player_video.UnFlush();
+          }
+
         }
         else
           break;
