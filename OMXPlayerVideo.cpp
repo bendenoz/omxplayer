@@ -482,11 +482,12 @@ void OMXPlayerVideo::Flush()
   UnLock();
 }
 
-void OMXPlayerVideo::UnFlush()
+void OMXPlayerVideo::LoopFlush()
 {
   Lock();
   LockDecoder();
   m_flush = false;
+  m_pts = 0;
   UnLockDecoder();
   UnLock();
 }
@@ -585,7 +586,7 @@ void OMXPlayerVideo::WaitCompletion()
       break;
     }
     UnLock();
-    OMXClock::OMXSleep(50);
+    OMXClock::OMXSleep(10);
   }
 
   m_decoder->WaitCompletion();

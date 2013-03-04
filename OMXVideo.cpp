@@ -1165,7 +1165,7 @@ void COMXVideo::WaitCompletion()
       m_omx_render.SetEOS(false);
       break;
     }
-    OMXClock::OMXSleep(50);
+    OMXClock::OMXSleep(10);
   }
 
   return;
