@@ -83,7 +83,6 @@ COMXVideo::COMXVideo()
   m_video_codec_name  = "";
   m_deinterlace       = false;
   m_hdmi_clock_sync   = false;
-  m_first_frame       = true;
   m_first_text        = true;
 }
 
@@ -145,10 +144,13 @@ bool COMXVideo::NaluFormatStartCodes(enum CodecID codec, uint8_t *in_extradata, 
   return false;    
 }
 
-bool COMXVideo::Open(COMXStreamInfo &hints, OMXClock *clock, float display_aspect, bool deinterlace, bool hdmi_clock_sync)
+bool COMXVideo::Open(COMXStreamInfo &hints, OMXClock *clock, const CRect &DestRect, float display_aspect, bool deinterlace, bool hdmi_clock_sync)
 {
   OMX_ERRORTYPE omx_err   = OMX_ErrorNone;
   std::string decoder_name;
+
+  m_src_rect.SetRect(0, 0, 0, 0);
+  m_dst_rect = DestRect;
 
   m_video_codec_name      = "";
   m_codingType            = OMX_VIDEO_CodingUnused;
@@ -469,6 +471,7 @@ bool COMXVideo::Open(COMXStreamInfo &hints, OMXClock *clock, float display_aspec
       return false;
     }
   }
+  SetVideoRect(m_src_rect, m_dst_rect);
 
   // Alloc buffers for the omx intput port.
   omx_err = m_omx_decoder.AllocInputBuffers();
@@ -718,7 +721,6 @@ bool COMXVideo::Open(COMXStreamInfo &hints, OMXClock *clock, float display_aspec
     CLASSNAME, __func__, m_omx_decoder.GetComponent(), m_omx_decoder.GetInputPort(), m_omx_decoder.GetOutputPort(),
     m_deinterlace, m_hdmi_clock_sync);
 
-  m_first_frame   = true;
   m_first_text    = true;
   return true;
 }
@@ -757,7 +759,6 @@ void COMXVideo::Close()
 
   m_video_codec_name  = "";
   m_deinterlace       = false;
-  m_first_frame       = true;
   m_first_text        = true;
   m_setStartTime      = true;
   m_setStartTimeText  = true;
@@ -960,72 +961,73 @@ int COMXVideo::Decode(uint8_t *pData, int iSize, double dts, double pts)
         }
       }
 
-      /*
-      omx_err = m_omx_decoder.EmptyThisBuffer(omx_buffer);
-
-      if(omx_err != OMX_ErrorNone)
-      {
-        CLog::Log(LOGERROR, "%s::%s - OMX_EmptyThisBuffer() failed with result(0x%x)\n", CLASSNAME, __func__, omx_err);
-
-        printf("%s::%s - OMX_EmptyThisBuffer() failed with result(0x%x)\n", CLASSNAME, __func__, omx_err);
-
-        return false;
-      }
-      */
-
-      if(m_first_frame && m_deinterlace)
+      omx_err = m_omx_decoder.WaitForEvent(OMX_EventPortSettingsChanged, 0);
+      if (omx_err == OMX_ErrorNone)
       {
         OMX_PARAM_PORTDEFINITIONTYPE port_image;
         OMX_INIT_STRUCTURE(port_image);
         port_image.nPortIndex = m_omx_decoder.GetOutputPort();
-
         omx_err = m_omx_decoder.GetParameter(OMX_IndexParamPortDefinition, &port_image);
         if(omx_err != OMX_ErrorNone)
         {
-          CLog::Log(LOGERROR, "%s::%s - error OMX_IndexParamPortDefinition 1 omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
+          CLog::Log(LOGERROR, "%s::%s - error m_omx_decoder.GetParameter(OMX_IndexParamPortDefinition) omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
         }
+        // reset scaling rectangle
+        SetVideoRect(m_src_rect, m_dst_rect);
 
-        /* we assume when the sizes equal we have the first decoded frame */
-        if(port_image.format.video.nFrameWidth == m_decoded_width && port_image.format.video.nFrameHeight == m_decoded_height)
+        m_omx_decoder.DisablePort(m_omx_decoder.GetOutputPort(), true);
+        m_omx_sched.DisablePort(m_omx_sched.GetInputPort(), true);
+
+        OMX_CONFIG_INTERLACETYPE interlace;
+        OMX_INIT_STRUCTURE(interlace);
+        interlace.nPortIndex = m_omx_decoder.GetOutputPort();
+        omx_err = m_omx_decoder.GetConfig(OMX_IndexConfigCommonInterlace, &interlace);
+        if(omx_err != OMX_ErrorNone)
         {
-          m_first_frame = false;
-
-          omx_err = m_omx_decoder.WaitForEvent(OMX_EventPortSettingsChanged);
-          if(omx_err == OMX_ErrorStreamCorrupt)
-          {
-            CLog::Log(LOGERROR, "%s::%s - image not unsupported\n", CLASSNAME, __func__);
-            return false;
-          }
-
-          m_omx_decoder.DisablePort(m_omx_decoder.GetOutputPort(), false);
-          m_omx_sched.DisablePort(m_omx_sched.GetInputPort(), false);
-
-          m_omx_image_fx.DisablePort(m_omx_image_fx.GetOutputPort(), false);
-          m_omx_image_fx.DisablePort(m_omx_image_fx.GetInputPort(), false);
-
-          port_image.nPortIndex = m_omx_image_fx.GetInputPort();
-
-          omx_err = m_omx_image_fx.SetParameter(OMX_IndexParamPortDefinition, &port_image);
-          if(omx_err != OMX_ErrorNone)
-          {
-            CLog::Log(LOGERROR, "%s::%s - error OMX_IndexParamPortDefinition 2 omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
-          }
-
-          port_image.nPortIndex = m_omx_image_fx.GetOutputPort();
-          omx_err = m_omx_image_fx.SetParameter(OMX_IndexParamPortDefinition, &port_image);
-          if(omx_err != OMX_ErrorNone)
-          {
-            CLog::Log(LOGERROR, "%s::%s - error OMX_IndexParamPortDefinition 3 omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
-          }
-
-          m_omx_decoder.EnablePort(m_omx_decoder.GetOutputPort(), false);
-
-          m_omx_image_fx.EnablePort(m_omx_image_fx.GetOutputPort(), false);
-
-          m_omx_image_fx.EnablePort(m_omx_image_fx.GetInputPort(), false);
-
-          m_omx_sched.EnablePort(m_omx_sched.GetInputPort(), false);
+          CLog::Log(LOGERROR, "%s::%s - error m_omx_decoder.GetConfig(OMX_IndexConfigCommonInterlace) omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
         }
+
+        if (m_deinterlace)
+        {
+          m_omx_image_fx.DisablePort(m_omx_image_fx.GetInputPort(), true);
+          port_image.nPortIndex = m_omx_image_fx.GetInputPort();
+          omx_err = m_omx_image_fx.SetParameter(OMX_IndexParamPortDefinition, &port_image);
+          if(omx_err != OMX_ErrorNone)
+          {
+            CLog::Log(LOGERROR, "%s::%s - error m_omx_image_fx.SetParameter(OMX_IndexParamPortDefinition) omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
+          }
+          omx_err = m_omx_decoder.WaitForEvent(OMX_EventPortSettingsChanged);
+          if(omx_err != OMX_ErrorNone)
+          {
+             CLog::Log(LOGERROR, "%s::%s - error m_omx_decoder.WaitForEvent(OMX_EventPortSettingsChanged) omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
+          }
+          port_image.nPortIndex = m_omx_image_fx.GetOutputPort();
+          omx_err = m_omx_image_fx.GetParameter(OMX_IndexParamPortDefinition, &port_image);
+          if(omx_err != OMX_ErrorNone)
+          {
+            CLog::Log(LOGERROR, "%s::%s - error m_omx_image_fx.GetParameter(OMX_IndexParamPortDefinition) omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
+          }
+          m_omx_image_fx.EnablePort(m_omx_image_fx.GetInputPort(), true);
+
+          m_omx_image_fx.DisablePort(m_omx_image_fx.GetOutputPort(), true);
+        }
+        port_image.nPortIndex = m_omx_sched.GetInputPort();
+        omx_err = m_omx_sched.SetParameter(OMX_IndexParamPortDefinition, &port_image);
+        if(omx_err != OMX_ErrorNone)
+        {
+          CLog::Log(LOGERROR, "%s::%s - error m_omx_sched.SetParameter(OMX_IndexParamPortDefinition) omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
+        }
+        omx_err = m_omx_sched.WaitForEvent(OMX_EventPortSettingsChanged);
+        if(omx_err != OMX_ErrorNone)
+        {
+           CLog::Log(LOGERROR, "%s::%s - error m_omx_sched.WaitForEvent(OMX_EventPortSettingsChanged) omx_err(0x%08x)\n", CLASSNAME, __func__, omx_err);
+        }
+        if (m_deinterlace)
+        {
+          m_omx_image_fx.EnablePort(m_omx_image_fx.GetOutputPort(), true);
+        }
+        m_omx_decoder.EnablePort(m_omx_decoder.GetOutputPort(), true);
+        m_omx_sched.EnablePort(m_omx_sched.GetInputPort(), true);
       }
     }
 
@@ -1045,8 +1047,6 @@ void COMXVideo::Reset(void)
 
   //m_setStartTime      = true;
   //m_setStartTimeText  = true;
-
-  //m_first_frame = true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1082,23 +1082,42 @@ bool COMXVideo::Resume()
 ///////////////////////////////////////////////////////////////////////////////////////////
 void COMXVideo::SetVideoRect(const CRect& SrcRect, const CRect& DestRect)
 {
-  if(!m_is_open)
+  float sx1 = SrcRect.x1, sy1 = SrcRect.y1, sx2 = SrcRect.x2, sy2 = SrcRect.y2;
+  float dx1 = DestRect.x1, dy1 = DestRect.y1, dx2 = DestRect.x2, dy2 = DestRect.y2;
+  float sw = SrcRect.Width() / DestRect.Width();
+  float sh = SrcRect.Height() / DestRect.Height();
+
+  if (dx2 <= dx1 || dy2 <= dy1)
     return;
+
+  // doesn't like negative coordinates on dest_rect. So adjust by increasing src_rect
+  if (dx1 < 0.0f) {
+    sx1 -= dx1 * sw;
+    dx1 -= dx1;
+  }
+  if (dy1 < 0.0f) {
+    sy1 -= dy1 * sh;
+    dy1 -= dy1;
+  }
 
   OMX_CONFIG_DISPLAYREGIONTYPE configDisplay;
   OMX_INIT_STRUCTURE(configDisplay);
   configDisplay.nPortIndex = m_omx_render.GetInputPort();
 
-  configDisplay.set     = OMX_DISPLAY_SET_FULLSCREEN;
   configDisplay.fullscreen = OMX_FALSE;
+  configDisplay.noaspect   = OMX_TRUE;
 
-  m_omx_render.SetConfig(OMX_IndexConfigDisplayRegion, &configDisplay);
+  configDisplay.set        = (OMX_DISPLAYSETTYPE)(OMX_DISPLAY_SET_DEST_RECT|OMX_DISPLAY_SET_SRC_RECT|OMX_DISPLAY_SET_FULLSCREEN|OMX_DISPLAY_SET_NOASPECT);
 
-  configDisplay.set     = OMX_DISPLAY_SET_DEST_RECT;
-  configDisplay.dest_rect.x_offset  = DestRect.x1;
-  configDisplay.dest_rect.y_offset  = DestRect.y1;
-  configDisplay.dest_rect.width     = DestRect.Width();
-  configDisplay.dest_rect.height    = DestRect.Height();
+  configDisplay.dest_rect.x_offset  = (int)(dx1+0.5f);
+  configDisplay.dest_rect.y_offset  = (int)(dy1+0.5f);
+  configDisplay.dest_rect.width     = (int)(dx2-dx1+0.5f);
+  configDisplay.dest_rect.height    = (int)(dy2-dy1+0.5f);
+
+  configDisplay.src_rect.x_offset   = (int)(sx1+0.5f);
+  configDisplay.src_rect.y_offset   = (int)(sy1+0.5f);
+  configDisplay.src_rect.width      = (int)(sx2-sx1+0.5f);
+  configDisplay.src_rect.height     = (int)(sy2-sy1+0.5f);
 
   m_omx_render.SetConfig(OMX_IndexConfigDisplayRegion, &configDisplay);
 
@@ -1119,7 +1138,6 @@ void COMXVideo::WaitCompletion()
 
   OMX_ERRORTYPE omx_err = OMX_ErrorNone;
   OMX_BUFFERHEADERTYPE *omx_buffer = m_omx_decoder.GetInputBuffer();
-  struct timespec starttime, endtime;
   
   if(omx_buffer == NULL)
   {
@@ -1140,18 +1158,10 @@ void COMXVideo::WaitCompletion()
     return;
   }
 
-  // clock_gettime(CLOCK_REALTIME, &starttime);
-
   while(true)
   {
     if(m_omx_render.IsEOS())
       break;
-    // clock_gettime(CLOCK_REALTIME, &endtime);
-    // if((endtime.tv_sec - starttime.tv_sec) > 5)
-    // {
-    //   CLog::Log(LOGERROR, "%s::%s - wait for eos timed out\n", CLASSNAME, __func__);
-    //   break;
-    // }
     OMXClock::OMXSleep(50);
   }
 
