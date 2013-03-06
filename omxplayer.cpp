@@ -433,6 +433,7 @@ int main(int argc, char *argv[])
   FORMAT_3D_T           m_3d                  = CONF_FLAGS_FORMAT_NONE;
   bool                  m_refresh             = false;
   double                startpts              = 0;
+  double                loop_offset           = 0;
   CRect                 DestRect              = {0,0,0,0};
   TV_DISPLAY_STATE_T   tv_state;
 
@@ -950,7 +951,7 @@ int main(int argc, char *argv[])
 
       m_av_clock->OMXStop();
 
-      pts = m_av_clock->GetPTS();
+      pts = m_av_clock->GetPTS() - loop_offset;
 
       seek_pos = (pts / DVD_TIME_BASE) + m_incr;
       seek_flags = m_incr < 0.0f ? AVSEEK_FLAG_BACKWARD : 0;
@@ -971,6 +972,8 @@ int main(int argc, char *argv[])
       
       if(m_has_subtitle)
         m_player_subtitles.Resume();
+
+      loop_offset = 0;
     }
 
     /* player got in an error state */
@@ -995,14 +998,12 @@ int main(int argc, char *argv[])
         if (m_loop)
         {
 
-          if(m_has_video)
-            m_player_video.WaitCompletion();
-
-          if(m_omx_reader.SeekTime(0 * 1000.0f, AVSEEK_FLAG_BACKWARD, &startpts))
-          {
-            FlushStreams(startpts);
-            if (m_has_video) m_player_video.LoopFlush();
-          }
+          m_omx_reader.SeekTime(0 * 1000.0f, AVSEEK_FLAG_BACKWARD, &startpts);
+          if(m_has_audio)
+            loop_offset = m_player_audio.GetCurrentPTS() /* + DVD_MSEC_TO_TIME(0) */;
+          else if(m_has_video)
+            loop_offset = m_player_video.GetCurrentPTS();
+          // printf("Loop offset : %8.02f\n", loop_offset / DVD_TIME_BASE);  
 
         }
         else
@@ -1054,7 +1055,15 @@ int main(int argc, char *argv[])
     }
 
     if(!m_omx_pkt)
+    {
       m_omx_pkt = m_omx_reader.Read();
+      if (m_omx_pkt && m_loop && m_omx_pkt->pts != DVD_NOPTS_VALUE)
+      {
+        m_omx_pkt->pts += loop_offset;
+        m_omx_pkt->dts += loop_offset;
+      }
+      //if (m_omx_pkt) printf("Pkt : pts %8.02f, pts %8.02f, type %d\n", m_omx_pkt->pts / DVD_TIME_BASE, m_omx_pkt->pts / DVD_TIME_BASE, (int)m_omx_pkt->codec_type);
+    }
 
     if(m_has_video && m_omx_pkt && m_omx_reader.IsActive(OMXSTREAM_VIDEO, m_omx_pkt->stream_index))
     {

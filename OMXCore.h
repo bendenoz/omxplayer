@@ -158,7 +158,6 @@ public:
 
   bool IsEOS() { return m_eos; };
 
-  void SetEOS(bool isEndOfStream);
   void SetCustomDecoderFillBufferDoneHandler(OMX_ERRORTYPE (*p)(OMX_HANDLETYPE, OMX_PTR, OMX_BUFFERHEADERTYPE*)){ CustomDecoderFillBufferDoneHandler = p;};
   void SetCustomDecoderEmptyBufferDoneHandler(OMX_ERRORTYPE (*p)(OMX_HANDLETYPE, OMX_PTR, OMX_BUFFERHEADERTYPE*)){ CustomDecoderEmptyBufferDoneHandler = p;};
 

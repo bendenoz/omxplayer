@@ -482,16 +482,6 @@ void OMXPlayerVideo::Flush()
   UnLock();
 }
 
-void OMXPlayerVideo::LoopFlush()
-{
-  Lock();
-  LockDecoder();
-  m_flush = false;
-  m_pts = 0;
-  UnLockDecoder();
-  UnLock();
-}
-
 bool OMXPlayerVideo::AddPacket(OMXPacket *pkt)
 {
   bool ret = false;
