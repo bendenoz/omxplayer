@@ -424,7 +424,8 @@ int main(int argc, char *argv[])
     atexit(restore_fl);
   }
 
-  std::string            m_filename;
+  std::string           m_filename, m_filename_format;
+  char                  m_fn_buf[255];
   double                m_incr                = 0;
   CRBP                  g_RBP;
   COMXCore              g_OMX;
@@ -434,6 +435,7 @@ int main(int argc, char *argv[])
   bool                  m_refresh             = false;
   double                startpts              = 0;
   double                loop_offset           = 0;
+  int                   loop_index            = 0;
   CRect                 DestRect              = {0,0,0,0};
   TV_DISPLAY_STATE_T   tv_state;
 
@@ -604,8 +606,23 @@ int main(int argc, char *argv[])
 
   if(!filename_is_URL && !Exists(m_filename))
   {
+    if (m_loop)
+    {
+      // Second chance - formatted filename (multipart loop)
+      m_filename_format = m_filename;
+      snprintf(m_fn_buf, 255, m_filename_format.c_str(), loop_index++);
+      m_filename = m_fn_buf;
+      if (!Exists(m_filename))
+      {
+        PrintFileNotFound(m_filename);
+        return 0;
+      }
+    }
+    else
+    {
     PrintFileNotFound(m_filename);
     return 0;
+    }
   }
 
   if(m_has_font && !Exists(m_font_path))
@@ -998,14 +1015,31 @@ int main(int argc, char *argv[])
         if (m_loop)
         {
 
+          if (!m_filename_format.empty()) {
+            snprintf(m_fn_buf, 255, m_filename_format.c_str(), loop_index++);
+            m_filename = m_fn_buf;
+            if (!Exists(m_filename))
+            {
+              loop_index = 0;
+              snprintf(m_fn_buf, 255, m_filename_format.c_str(), loop_index++);
+              m_filename = m_fn_buf;
+            }
+          }
+
+          if(!m_omx_reader.Open(m_filename.c_str(), false)) 
+            goto do_exit;
           m_omx_reader.SeekTime(0 * 1000.0f, AVSEEK_FLAG_BACKWARD, &startpts);
+
           if(m_has_audio)
           {
             loop_offset = m_player_audio.GetCurrentPTS() /* + DVD_MSEC_TO_TIME(250) */;
             m_player_video.SetCurrentPTS(loop_offset);
           }
           else if(m_has_video)
+          {
             loop_offset = m_player_video.GetCurrentPTS();
+          }
+
           // printf("Loop offset : %8.02f\n", loop_offset / DVD_TIME_BASE);  
 
         }
@@ -1071,7 +1105,7 @@ int main(int argc, char *argv[])
           m_omx_pkt->dts += loop_offset;
         }
       }
-      //if (m_omx_pkt) printf("Pkt : pts %8.02f, pts %8.02f, type %d\n", m_omx_pkt->pts / DVD_TIME_BASE, m_omx_pkt->pts / DVD_TIME_BASE, (int)m_omx_pkt->codec_type);
+      // if (m_omx_pkt) printf("Pkt : pts %8.02f, pts %8.02f, type %d, vid delay %f\n", m_omx_pkt->pts / DVD_TIME_BASE, m_omx_pkt->pts / DVD_TIME_BASE, (int)m_omx_pkt->codec_type, m_player_video.GetDelay());
     }
 
     if(m_has_video && m_omx_pkt && m_omx_reader.IsActive(OMXSTREAM_VIDEO, m_omx_pkt->stream_index))
