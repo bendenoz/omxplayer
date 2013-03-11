@@ -1000,7 +1000,10 @@ int main(int argc, char *argv[])
 
           m_omx_reader.SeekTime(0 * 1000.0f, AVSEEK_FLAG_BACKWARD, &startpts);
           if(m_has_audio)
-            loop_offset = m_player_audio.GetCurrentPTS() /* + DVD_MSEC_TO_TIME(0) */;
+          {
+            loop_offset = m_player_audio.GetCurrentPTS() /* + DVD_MSEC_TO_TIME(250) */;
+            m_player_video.SetCurrentPTS(loop_offset);
+          }
           else if(m_has_video)
             loop_offset = m_player_video.GetCurrentPTS();
           // printf("Loop offset : %8.02f\n", loop_offset / DVD_TIME_BASE);  
@@ -1057,10 +1060,16 @@ int main(int argc, char *argv[])
     if(!m_omx_pkt)
     {
       m_omx_pkt = m_omx_reader.Read();
-      if (m_omx_pkt && m_loop && m_omx_pkt->pts != DVD_NOPTS_VALUE)
+      if (m_omx_pkt && m_loop)
       {
-        m_omx_pkt->pts += loop_offset;
-        m_omx_pkt->dts += loop_offset;
+        if (m_omx_pkt->pts != DVD_NOPTS_VALUE)
+        {
+          m_omx_pkt->pts += loop_offset;
+        }
+        if (m_omx_pkt->dts != DVD_NOPTS_VALUE)
+        {
+          m_omx_pkt->dts += loop_offset;
+        }
       }
       //if (m_omx_pkt) printf("Pkt : pts %8.02f, pts %8.02f, type %d\n", m_omx_pkt->pts / DVD_TIME_BASE, m_omx_pkt->pts / DVD_TIME_BASE, (int)m_omx_pkt->codec_type);
     }
