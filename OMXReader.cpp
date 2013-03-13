@@ -164,6 +164,12 @@ bool OMXReader::Open(std::string filename, bool dump_format)
   }
   else
   {
+  
+    if(m_pFile)
+    {
+      m_pFile->Close();
+      delete m_pFile;
+    }
     m_pFile = new CFile();
 
     if (!m_pFile->Open(m_filename, flags))
